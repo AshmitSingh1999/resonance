@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>dev.resonance.audio</string>
+  <key>CFBundleName</key>
+  <string>Resonance Audio</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <!-- Shown in the macOS permission prompt. This is the "System Audio Recording
+       Only" category: narrower than screen recording, and granted once. -->
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Resonance reads the audio your Mac is playing so the lyrics can react to the music. It never records or stores anything.</string>
+</dict>
+</plist>

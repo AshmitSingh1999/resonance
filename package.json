@@ -1,0 +1,35 @@
+{
+  "name": "resonance",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --pretty",
+    "daemon": "tsx packages/daemon/src/cli.ts",
+    "start": "tsx packages/daemon/src/index.ts",
+    "web": "vite --config packages/web/vite.config.ts",
+    "build": "vite build --config packages/web/vite.config.ts",
+    "autostart": "scripts/autostart.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@types/ws": "^8.18.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ws": "^8.21.3"
+  },
+  "version": "0.1.0"
+}

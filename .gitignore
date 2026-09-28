@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# Build artifacts
+vendor/mediaremote-adapter/build/
+native/resonance-audio/build/
+
+# Local state and credentials: Tuya API keys, the bulb's local key, the lyrics
+# cache and the Python virtualenv. Never commit this directory.
+.resonance/

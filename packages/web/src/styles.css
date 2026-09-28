@@ -1,0 +1,682 @@
+/*
+ * Phase 3 look: restrained, dark, legible from across a room.
+ *
+ * The typography here is deliberately neutral. Phase 5 introduces the theme
+ * engine, which swaps typeface, palette and motion per track; keeping this plain
+ * means the sync can be judged on its own before that lands.
+ */
+
+:root {
+  --bg: #08090c;
+  --fg: #f5f6f8;
+  --dim: rgba(245, 246, 248, 0.28);
+  --accent: #ffffff;
+  --edge: clamp(1.25rem, 3vw, 2.5rem);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, -apple-system, 'SF Pro Display', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.app { position: relative; height: 100%; }
+
+/* --- lyric stage ------------------------------------------------------- */
+
+.stage {
+  position: absolute;
+  inset: 0;
+  padding: 0 var(--edge);
+  /* The stack extends past the viewport; fade it out rather than clipping hard. */
+  mask-image: linear-gradient(to bottom, transparent, #000 26%, #000 64%, transparent 88%);
+  overflow: hidden;
+}
+
+.stack {
+  /* Positioned from the top and shifted by a measured offset, so wrapped lines
+     of differing heights still centre correctly. */
+  position: absolute;
+  top: 0;
+  left: var(--edge);
+  right: var(--edge);
+  transition: transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+
+.line {
+  /* Height is never fixed: a long line wraps, and forcing a uniform height made
+     wrapped text overflow onto its neighbour. */
+  margin: 0;
+  padding: 0.28em 0;
+  font-size: clamp(1.6rem, 4.4vw, 3.6rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  transition: opacity 320ms ease, filter 320ms ease, transform 320ms ease;
+  will-change: opacity, filter;
+}
+
+/* Context lines recede with distance, so the eye lands on the active one. */
+.line--past,
+.line--future {
+  opacity: calc(0.42 - var(--distance, 1) * 0.11);
+  filter: blur(calc(var(--distance, 1) * 0.6px));
+}
+
+.line--active { opacity: 1; }
+
+.line--instrumental {
+  letter-spacing: 0.35em;
+}
+
+.line--hint,
+.line--static { font-size: 1.05rem; font-weight: 400; opacity: 0.5; }
+
+.stage--empty { display: flex; align-items: center; justify-content: center; }
+
+.stage--plain {
+  display: block;
+  overflow-y: auto;
+  padding: 18vh var(--edge);
+  mask-image: none;
+}
+
+.stage--plain .line--static { line-height: 1.9; }
+
+/* Word sweep: --sung runs 0 to 1 as the word is reached. */
+.word {
+  color: color-mix(in oklab, var(--accent) calc(var(--sung) * 100%), var(--dim));
+  transition: color 120ms linear;
+}
+
+/* --- idle -------------------------------------------------------------- */
+
+.idle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+.idle__mark { margin: 0; font-size: 1.5rem; font-weight: 600; letter-spacing: 0.24em; text-transform: uppercase; }
+.idle__hint { margin: 0; color: var(--dim); font-size: 0.9rem; }
+
+/* --- heads-up display -------------------------------------------------- */
+
+.hud {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: var(--edge);
+  font-size: 0.8rem;
+  /* Sits over the lyrics, so it must not compete with them. */
+  background: linear-gradient(to top, color-mix(in oklab, var(--theme-bg) 92%, transparent), transparent);
+}
+
+.now-playing { position: relative; display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
+.now-playing__art { width: 46px; height: 46px; border-radius: 6px; object-fit: cover; }
+.now-playing__text { min-width: 0; }
+.now-playing__title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-playing__artist { color: var(--dim); }
+.now-playing__time { color: var(--dim); display: flex; align-items: center; gap: 0.4rem; margin-top: 0.15rem; font-variant-numeric: tabular-nums; }
+
+
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+.dot--live { background: #4ade80; }
+
+.hud__right { display: flex; align-items: center; gap: 1rem; }
+
+.offset { display: flex; align-items: center; gap: 0.5rem; color: var(--dim); }
+.offset button {
+  width: 26px; height: 26px;
+  color: var(--theme-ink);
+  border: 1px solid var(--theme-line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.offset button:hover { background: var(--theme-veil); }
+.offset__value { font-variant-numeric: tabular-nums; min-width: 4.5rem; text-align: center; color: var(--theme-ink); }
+.offset__hint { opacity: 0.6; }
+
+.status { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.7rem; color: var(--dim); }
+.status--open { color: #4ade80; }
+.status--closed { color: #f87171; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stack, .line, .word, .progress__fill { transition: none; }
+}
+
+/* --- audio reactivity --------------------------------------------------- */
+
+.app {
+  /* Defaults so the page renders identically before any audio is captured. */
+  --audio-bass: 0;
+  --audio-mid: 0;
+  --audio-treble: 0;
+  --audio-rms: 0;
+  --audio-bright: 0;
+}
+
+/*
+ * A restrained coupling for this phase: loudness lifts the weight and presence of
+ * the active line. Phase 5 introduces the theme engine, where audio drives
+ * typeface, palette and motion per track; keeping it subtle here means the sync
+ * can still be judged on its own.
+ */
+.line--active {
+  transform: scale(calc(1 + var(--audio-bass) * 0.022));
+  text-shadow: 0 0 calc(var(--audio-rms) * 42px) rgba(255, 255, 255, calc(var(--audio-rms) * 0.45));
+}
+
+.is-beat .line--active { animation: beat 220ms ease-out; }
+
+@keyframes beat {
+  0% { transform: scale(calc(1 + var(--audio-bass) * 0.022 + 0.012)); }
+  100% { transform: scale(calc(1 + var(--audio-bass) * 0.022)); }
+}
+
+.audio { display: flex; align-items: center; gap: 0.6rem; }
+.audio__reason { color: #f0b17a; max-width: 22rem; }
+
+.audio__toggle {
+  border: 1px solid var(--theme-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--theme-ink);
+  cursor: pointer;
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.audio__toggle:hover { background: var(--theme-veil); }
+.audio__toggle:disabled { opacity: 0.5; cursor: default; }
+.audio--live .audio__toggle { border-color: rgba(74, 222, 128, 0.45); color: #4ade80; }
+
+.meters { display: flex; align-items: center; gap: 0.55rem; }
+.meter { display: flex; align-items: center; gap: 0.3rem; }
+.meter__label { color: var(--dim); font-size: 0.65rem; }
+.meter__track {
+  width: 42px; height: 4px; border-radius: 2px;
+  background: var(--theme-veil);
+  overflow: hidden;
+}
+.meter__fill {
+  display: block; width: 100%; height: 100%;
+  background: var(--theme-ink);
+  transform-origin: left center;
+  /* Transform rather than width: it stays on the compositor at 60fps. */
+  transition: transform 80ms linear;
+}
+
+.beat { width: 8px; height: 8px; border-radius: 50%; background: var(--theme-line); }
+.beat--hit { background: #4ade80; }
+
+@media (prefers-reduced-motion: reduce) {
+  .line--active { transform: none; animation: none; }
+  .is-beat .line--active { animation: none; }
+}
+
+/* --- themes ------------------------------------------------------------- */
+
+/*
+ * A family is a descriptor plus the rules below. Motion reads the same audio
+ * custom properties every family gets, so adding a family means adding a block
+ * here and an entry in the registry — no existing rule changes.
+ */
+
+.app {
+  --theme-bg: #08090c;
+  --theme-dim: rgba(245, 246, 248, 0.28);
+  --theme-accent: #f5f6f8;
+  --theme-typeface: ui-sans-serif, system-ui, sans-serif;
+  --theme-weight-min: 600;
+  --theme-weight-max: 800;
+  --theme-leading: 1.2;
+  --theme-intensity: 0.4;
+  --theme-ink: #f5f6f8;
+  --theme-line: rgba(245, 246, 248, 0.18);
+  --theme-veil: rgba(245, 246, 248, 0.08);
+  --theme-shade: #000000;
+  --progress: 0;
+
+  color: var(--theme-ink);
+
+  background: var(--theme-bg);
+  /* Palette changes should feel like a scene change, not a flicker. */
+  transition: background-color 900ms ease;
+}
+
+.stage .line {
+  font-family: var(--theme-typeface);
+  line-height: var(--theme-leading);
+  /* Loudness drives the variable weight axis: free on the compositor, and it
+     makes the type breathe with the track rather than merely scaling. */
+  font-variation-settings: 'wght'
+    calc(var(--theme-weight-min) + (var(--theme-weight-max) - var(--theme-weight-min)) * var(--audio-rms));
+  font-weight: var(--theme-weight-min);
+}
+
+.line--past,
+.line--future { color: var(--theme-dim); }
+
+.word { color: color-mix(in oklab, var(--theme-accent) calc(var(--sung) * 100%), var(--theme-dim)); }
+
+.line--active:not(:has(.word)) { color: var(--theme-accent); }
+
+/* Serene: soft, wide, slow. Acoustic and sparse material. */
+.theme-serene .line {
+  letter-spacing: 0.005em;
+  font-style: normal;
+}
+.theme-serene .line--active {
+  text-shadow: 0 0 calc(var(--audio-rms) * 30px * var(--theme-intensity))
+    color-mix(in oklab, var(--theme-accent) 40%, transparent);
+  transform: scale(calc(1 + var(--audio-bass) * 0.012 * var(--theme-intensity)));
+}
+.theme-serene .line--past,
+.theme-serene .line--future { filter: blur(calc(var(--distance, 1) * 0.9px)); }
+.theme-serene .stack { transition: transform 700ms cubic-bezier(0.33, 0.9, 0.25, 1); }
+
+/* Pulse: heavy, tight, beat-snapped. Rock and energetic pop. */
+.theme-pulse .line {
+  text-transform: uppercase;
+  letter-spacing: -0.03em;
+}
+.theme-pulse .line--active {
+  transform: scale(calc(1 + var(--audio-bass) * 0.05 * var(--theme-intensity)));
+  text-shadow: 0 0 calc(var(--audio-rms) * 22px * var(--theme-intensity))
+    color-mix(in oklab, var(--theme-accent) 55%, transparent);
+}
+.theme-pulse.is-beat .line--active { animation: pulse-hit 180ms cubic-bezier(0.2, 0.9, 0.3, 1); }
+.theme-pulse .stack { transition: transform 260ms cubic-bezier(0.2, 0.9, 0.3, 1); }
+
+@keyframes pulse-hit {
+  0% { transform: scale(calc(1 + var(--audio-bass) * 0.05 * var(--theme-intensity) + 0.03)); }
+  100% { transform: scale(calc(1 + var(--audio-bass) * 0.05 * var(--theme-intensity))); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-serene .line--active,
+  .theme-pulse .line--active { transform: none; animation: none; }
+  .theme-pulse.is-beat .line--active { animation: none; }
+}
+
+.theme-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  color: var(--theme-accent);
+  opacity: 0.55;
+}
+
+/* Cascade: dense delivery, words arriving in sequence rather than at once. */
+.theme-cascade .line { letter-spacing: -0.015em; }
+.theme-cascade .line--active .word {
+  display: inline-block;
+  animation: cascade-in 380ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  /* Staggered by position, capped so a long line does not finish after the
+     next one has already started. */
+  animation-delay: calc(min(var(--index) * 34ms, 300ms));
+}
+.theme-cascade .stack { transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes cascade-in {
+  from { opacity: 0; transform: translateY(0.5em); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Drift: slow travel through depth, for ambient material with few words. */
+.theme-drift .stage { perspective: 900px; }
+.theme-drift .line {
+  letter-spacing: 0.02em;
+  transform-style: preserve-3d;
+}
+.theme-drift .line--active {
+  animation: drift-travel 9s ease-in-out infinite alternate;
+  text-shadow: 0 0 calc(24px + var(--audio-rms) * 40px)
+    color-mix(in oklab, var(--theme-accent) 35%, transparent);
+}
+.theme-drift .line--past,
+.theme-drift .line--future {
+  transform: translateZ(calc(var(--distance, 1) * -50px));
+  filter: blur(calc(var(--distance, 1) * 1.4px));
+}
+.theme-drift .stack { transition: transform 1100ms cubic-bezier(0.4, 0, 0.2, 1); }
+
+@keyframes drift-travel {
+  from { transform: translateZ(0) translateX(0); }
+  to { transform: translateZ(26px) translateX(-1.2%); }
+}
+
+/* Fracture: hard transients get a split-channel jolt. */
+.theme-fracture .line { letter-spacing: -0.04em; }
+.theme-fracture .line--active {
+  /* Chromatic split scaled by treble, so busy passages read as more unstable. */
+  text-shadow:
+    calc(var(--audio-treble) * 5px) 0 0 color-mix(in oklab, #ff2d55 70%, transparent),
+    calc(var(--audio-treble) * -5px) 0 0 color-mix(in oklab, #00e5ff 70%, transparent);
+}
+.theme-fracture.is-beat .line--active {
+  animation: fracture-hit 160ms steps(3, end);
+}
+.theme-fracture .stack { transition: transform 120ms steps(4, end); }
+
+@keyframes fracture-hit {
+  0% { transform: translateX(-0.45%) skewX(-1.4deg); }
+  50% { transform: translateX(0.5%) skewX(1deg); }
+  100% { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-cascade .line--active .word,
+  .theme-drift .line--active,
+  .theme-fracture.is-beat .line--active { animation: none; }
+  .theme-fracture .line--active { text-shadow: none; }
+  .theme-drift .line--past,
+  .theme-drift .line--future { transform: none; }
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* Behind everything, and never interactive. */
+  z-index: 0;
+  pointer-events: none;
+}
+
+.stage, .hud, .idle { position: absolute; z-index: 1; }
+
+/* --- settings ----------------------------------------------------------- */
+
+.settings {
+  position: absolute;
+  z-index: 2;
+  right: var(--edge);
+  bottom: calc(var(--edge) + 3.2rem);
+  width: min(23rem, calc(100vw - var(--edge) * 2));
+  padding: 1rem 1.1rem 0.9rem;
+  border: 1px solid var(--theme-line);
+  border-radius: 14px;
+  /* Readable over any artwork palette, without hiding the lyrics behind it. */
+  background: color-mix(in oklab, var(--theme-bg) 88%, var(--theme-shade));
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  font-size: 0.8rem;
+}
+
+.settings__head { display: flex; align-items: center; justify-content: space-between; }
+.settings__head h2 { margin: 0; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.02em; }
+.settings__head button {
+  border: 0; background: transparent; color: var(--dim);
+  font-size: 1.1rem; cursor: pointer; line-height: 1;
+}
+.settings__head button:hover { color: var(--theme-ink); }
+
+.settings__group { margin-top: 0.95rem; }
+.settings__group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.65rem; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--dim);
+}
+
+.settings__row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem; padding: 0.3rem 0;
+}
+.settings__hint { margin: 0.45rem 0 0; color: var(--dim); font-size: 0.7rem; line-height: 1.5; }
+
+.settings__families { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.chip {
+  border: 1px solid var(--theme-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--theme-ink);
+  padding: 0.25rem 0.6rem;
+  font: inherit; font-size: 0.72rem;
+  cursor: pointer;
+}
+.chip:hover { background: var(--theme-veil); }
+.chip--on { border-color: var(--theme-accent); color: var(--theme-accent); }
+.chip__note { opacity: 0.55; }
+
+.settings__foot {
+  margin-top: 1rem; padding-top: 0.7rem;
+  border-top: 1px solid var(--theme-veil);
+  color: var(--dim); font-size: 0.7rem;
+}
+.settings kbd {
+  display: inline-block;
+  padding: 0.05rem 0.3rem; margin: 0 0.1rem;
+  border: 1px solid var(--theme-line); border-radius: 4px;
+  font-family: inherit; font-size: 0.68rem;
+}
+
+.theme-badge__pin { opacity: 0.7; }
+
+/* --- progress ----------------------------------------------------------- */
+
+.progress {
+  position: absolute;
+  z-index: 2;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: var(--theme-veil);
+  pointer-events: none;
+}
+
+.progress__fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  /* Scaled, not resized: `width` would lay out every frame, and a transition on
+     it fights the value the animation loop is already updating. */
+  transform: scaleX(var(--progress));
+  background: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--theme-accent) 55%, transparent),
+    var(--theme-accent)
+  );
+  box-shadow: 0 0 12px color-mix(in oklab, var(--theme-accent) 45%, transparent);
+}
+
+/* --- layouts ------------------------------------------------------------ */
+
+/*
+ * Arrangement is entirely CSS. Every layout shares one DOM structure and one
+ * measured-centring path, so the offset measurement that keeps wrapped lines
+ * aligned is never duplicated.
+ */
+
+.layout-rail .stack { left: auto; right: var(--edge); width: 62%; }
+.layout-rail .line { font-size: clamp(1.4rem, 3.4vw, 2.9rem); }
+
+.layout-band {
+  mask-image: linear-gradient(to bottom, transparent 42%, #000 58%);
+}
+.layout-band .stack { text-align: center; }
+.layout-band .line { font-size: clamp(1.5rem, 3.8vw, 3rem); }
+.layout-band .line--past,
+.layout-band .line--future { opacity: 0.3; filter: none; }
+
+/* --- editorial / marquee ------------------------------------------------ */
+
+.theme-editorial .line { letter-spacing: -0.01em; }
+.theme-editorial .stack { transition: transform 620ms cubic-bezier(0.3, 0.9, 0.3, 1); }
+.theme-editorial .line--active {
+  font-style: normal;
+  text-shadow: 0 0 calc(var(--audio-rms) * 24px * var(--theme-intensity))
+    color-mix(in oklab, var(--theme-accent) 30%, transparent);
+}
+.theme-editorial .line--past,
+.theme-editorial .line--future { filter: blur(calc(var(--distance, 1) * 0.5px)); }
+
+.theme-marquee .line {
+  text-transform: uppercase;
+  letter-spacing: -0.045em;
+  transform: scaleX(1.06);
+  transform-origin: left center;
+}
+.theme-marquee .line--active {
+  animation: marquee-drift 7s ease-in-out infinite alternate;
+  text-shadow: 0 0 calc(var(--audio-rms) * 26px * var(--theme-intensity))
+    color-mix(in oklab, var(--theme-accent) 50%, transparent);
+}
+.theme-marquee .stack { transition: transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1); }
+
+@keyframes marquee-drift {
+  from { transform: scaleX(1.06) translateX(0); }
+  to   { transform: scaleX(1.06) translateX(-1.5%); }
+}
+
+/* --- light schemes ------------------------------------------------------ */
+
+/*
+ * On a light ground the stage mask and the HUD gradient still work (both act on
+ * alpha or on --theme-bg), but anything that assumed a dark page needs to flip.
+ */
+.app.is-light .settings { box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18); }
+.app.is-light .dot--live { background: #1a8a4a; }
+.app.is-light .status--open { color: #1a8a4a; }
+.app.is-light .status--closed { color: #b3261e; }
+.app.is-light .audio--live .audio__toggle { border-color: rgba(26, 138, 74, 0.5); color: #1a8a4a; }
+.app.is-light .beat--hit { background: #1a8a4a; }
+.app.is-light .audio__reason { color: #8a4b12; }
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-marquee .line--active { animation: none; }
+}
+
+.audio__toggle--static { cursor: default; opacity: 0.85; }
+
+/* --- settings panel ----------------------------------------------------- */
+
+/*
+ * A full-height panel rather than a popover: there are far more settings than a
+ * small floating box can show without constant scrolling, and a tab rail keeps
+ * each group short enough to read at a glance.
+ */
+.panel {
+  position: absolute;
+  z-index: 3;
+  inset: 0 0 0 auto;
+  width: min(30rem, 92vw);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--theme-line);
+  background: color-mix(in oklab, var(--theme-bg) 92%, var(--theme-shade));
+  backdrop-filter: blur(24px);
+  box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45);
+  font-size: 0.82rem;
+  transition: opacity 160ms ease;
+}
+
+/* Faded while a slider is dragged, so the change is visible behind the panel. */
+.panel--previewing { opacity: 0.25; }
+
+.panel__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.1rem 0.8rem;
+  border-bottom: 1px solid var(--theme-veil);
+}
+.panel__head h2 { margin: 0; font-size: 0.9rem; font-weight: 600; }
+.panel__head button {
+  border: 0; background: transparent; color: var(--theme-ink);
+  font-size: 1.3rem; line-height: 1; cursor: pointer; opacity: 0.6;
+}
+.panel__head button:hover { opacity: 1; }
+
+.panel__body { display: flex; flex: 1; min-height: 0; }
+
+.panel__tabs {
+  display: flex; flex-direction: column;
+  padding: 0.6rem 0;
+  border-right: 1px solid var(--theme-veil);
+  flex: 0 0 8rem;
+  overflow-y: auto;
+}
+.panel__tab {
+  border: 0; background: transparent;
+  color: var(--theme-ink);
+  text-align: left;
+  padding: 0.5rem 1rem;
+  font: inherit; font-size: 0.78rem;
+  cursor: pointer; opacity: 0.55;
+  border-left: 2px solid transparent;
+}
+.panel__tab:hover { opacity: 0.85; background: var(--theme-veil); }
+.panel__tab--on {
+  opacity: 1;
+  border-left-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
+.panel__content { flex: 1; min-width: 0; overflow-y: auto; padding: 1rem 1.1rem 1.5rem; }
+
+.panel__advanced {
+  margin-top: 1rem;
+  border: 1px dashed var(--theme-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--theme-ink);
+  opacity: 0.7;
+  padding: 0.45rem 0.7rem;
+  font: inherit; font-size: 0.75rem;
+  cursor: pointer; width: 100%;
+}
+.panel__advanced:hover { opacity: 1; background: var(--theme-veil); }
+
+.panel__foot {
+  padding: 0.7rem 1.1rem;
+  border-top: 1px solid var(--theme-veil);
+  color: var(--dim); font-size: 0.7rem;
+}
+.panel kbd {
+  display: inline-block; padding: 0.05rem 0.3rem; margin: 0 0.1rem;
+  border: 1px solid var(--theme-line); border-radius: 4px;
+  font-family: inherit; font-size: 0.68rem;
+}
+
+/* --- individual settings ------------------------------------------------ */
+
+.setting { padding: 0.65rem 0; border-bottom: 1px solid var(--theme-veil); }
+.setting:last-of-type { border-bottom: 0; }
+
+.setting__head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem; width: 100%;
+}
+.setting__label { font-weight: 500; }
+.setting__value { font-variant-numeric: tabular-nums; opacity: 0.75; }
+.setting__hint { margin: 0.3rem 0 0; color: var(--dim); font-size: 0.7rem; line-height: 1.5; }
+.setting__hint--warn { color: #f0b17a; }
+
+.setting--range input[type='range'] { width: 100%; margin-top: 0.4rem; }
+.setting--toggle .setting__head { cursor: pointer; }
+.setting__chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
+
+.setting--unavailable { opacity: 0.55; }
+.setting--unavailable input, .setting--unavailable button { pointer-events: none; }
